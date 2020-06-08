@@ -69,11 +69,21 @@ test_expect_success 'prune directories with gitdir pointing to nowhere' '
 '
 
 test_expect_success 'not prune locked checkout' '
-	test_when_finished rm -r .git/worktrees &&
-	mkdir -p .git/worktrees/ghi &&
+	test_when_finished rm -fr .git/worktrees ghi &&
+	git worktree add ghi &&
 	: >.git/worktrees/ghi/locked &&
+	rm -r ghi &&
 	git worktree prune &&
 	test -d .git/worktrees/ghi
+'
+
+test_expect_success 'prune corrupt despite lock' '
+	test_when_finished rm -fr .git/worktrees ghi &&
+	mkdir -p .git/worktrees/ghi &&
+	: >.git/worktrees/ghi/gitdir &&
+	: >.git/worktrees/ghi/locked &&
+	git worktree prune &&
+	! test -d .git/worktrees/ghi
 '
 
 test_expect_success 'not prune recent checkouts' '

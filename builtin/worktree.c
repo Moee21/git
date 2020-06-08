@@ -79,8 +79,6 @@ static int prune_worktree(const char *id, struct strbuf *reason)
 		strbuf_addstr(reason, _("not a valid directory"));
 		return 1;
 	}
-	if (file_exists(git_path("worktrees/%s/locked", id)))
-		return 0;
 	if (stat(git_path("worktrees/%s/gitdir", id), &st)) {
 		strbuf_addstr(reason, _("gitdir file does not exist"));
 		return 1;
@@ -121,6 +119,8 @@ static int prune_worktree(const char *id, struct strbuf *reason)
 	path[len] = '\0';
 	if (!file_exists(path)) {
 		free(path);
+		if (file_exists(git_path("worktrees/%s/locked", id)))
+			return 0;
 		if (stat(git_path("worktrees/%s/index", id), &st) ||
 		    st.st_mtime <= expire) {
 			strbuf_addstr(reason, _("gitdir file points to non-existent location"));
