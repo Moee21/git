@@ -153,6 +153,11 @@ static int prune_cmp(const void *a, const void *b)
 
 	if ((c = fspathcmp(x->string, y->string)))
 	    return c;
+	/* paths same; main worktee (util==0) sorts above all others */
+	if (!x->util)
+		return -1;
+	if (!y->util)
+		return 1;
 	/* paths same; sort by .git/worktrees/<id> */
 	return strcmp(x->util, y->util);
 }
@@ -171,6 +176,7 @@ static void prune_dups(struct string_list *l)
 static void prune_worktrees(void)
 {
 	struct strbuf reason = STRBUF_INIT;
+	struct strbuf main = STRBUF_INIT;
 	struct string_list kept = STRING_LIST_INIT_NODUP;
 	DIR *dir = opendir(git_path("worktrees"));
 	struct dirent *d;
@@ -190,6 +196,10 @@ static void prune_worktrees(void)
 	}
 	closedir(dir);
 
+	strbuf_add_absolute_path(&main, get_git_common_dir());
+	/* massage main worktree absolute path to match 'gitdir' content */
+	strbuf_strip_suffix(&main, "/.");
+	string_list_append(&kept, strbuf_detach(&main, 0));
 	prune_dups(&kept);
 	string_list_clear(&kept, 1);
 
