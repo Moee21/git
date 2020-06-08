@@ -67,7 +67,12 @@ static void delete_worktrees_dir_if_empty(void)
 	rmdir(git_path("worktrees")); /* ignore failed removal */
 }
 
-static int should_prune_worktree(const char *id, struct strbuf *reason)
+/*
+ * Return NULL if worktree entry should be pruned (along with reason for
+ * pruning), otherwise return the path of the worktree itself. Caller is
+ * responsible for freeing return value.
+ */
+static char *worktree_disposition(const char *id, struct strbuf *reason)
 {
 	struct stat st;
 	char *path;
@@ -77,17 +82,17 @@ static int should_prune_worktree(const char *id, struct strbuf *reason)
 
 	if (!is_directory(git_path("worktrees/%s", id))) {
 		strbuf_addstr(reason, _("not a valid directory"));
-		return 1;
+		return NULL;
 	}
 	if (stat(git_path("worktrees/%s/gitdir", id), &st)) {
 		strbuf_addstr(reason, _("gitdir file does not exist"));
-		return 1;
+		return NULL;
 	}
 	fd = open(git_path("worktrees/%s/gitdir", id), O_RDONLY);
 	if (fd < 0) {
 		strbuf_addf(reason, _("unable to read gitdir file (%s)"),
 			    strerror(errno));
-		return 1;
+		return NULL;
 	}
 	len = xsize_t(st.st_size);
 	path = xmallocz(len);
@@ -98,7 +103,7 @@ static int should_prune_worktree(const char *id, struct strbuf *reason)
 			    strerror(errno));
 		close(fd);
 		free(path);
-		return 1;
+		return NULL;
 	}
 	close(fd);
 
@@ -107,30 +112,29 @@ static int should_prune_worktree(const char *id, struct strbuf *reason)
 			    _("short read (expected %"PRIuMAX" bytes, read %"PRIuMAX")"),
 			    (uintmax_t)len, (uintmax_t)read_result);
 		free(path);
-		return 1;
+		return NULL;
 	}
 	while (len && (path[len - 1] == '\n' || path[len - 1] == '\r'))
 		len--;
 	if (!len) {
 		strbuf_addstr(reason, _("invalid gitdir file"));
 		free(path);
-		return 1;
+		return NULL;
 	}
 	path[len] = '\0';
 	if (!file_exists(path)) {
-		free(path);
 		if (file_exists(git_path("worktrees/%s/locked", id)))
-			return 0;
+			return path;
 		if (stat(git_path("worktrees/%s/index", id), &st) ||
 		    st.st_mtime <= expire) {
 			strbuf_addstr(reason, _("gitdir file points to non-existent location"));
-			return 1;
+			free(path);
+			return NULL;
 		} else {
-			return 0;
+			return path;
 		}
 	}
-	free(path);
-	return 0;
+	return path;
 }
 
 static void prune_worktree(const char *id, const char *reason)
@@ -141,22 +145,54 @@ static void prune_worktree(const char *id, const char *reason)
 		delete_git_dir(id);
 }
 
+static int prune_cmp(const void *a, const void *b)
+{
+	const struct string_list_item *x = a;
+	const struct string_list_item *y = b;
+	int c;
+
+	if ((c = fspathcmp(x->string, y->string)))
+	    return c;
+	/* paths same; sort by .git/worktrees/<id> */
+	return strcmp(x->util, y->util);
+}
+
+static void prune_dups(struct string_list *l)
+{
+	int i;
+
+	QSORT(l->items, l->nr, prune_cmp);
+	for (i = 1; i < l->nr; i++) {
+		if (!fspathcmp(l->items[i].string, l->items[i - 1].string))
+			prune_worktree(l->items[i].util, "duplicate entry");
+	}
+}
+
 static void prune_worktrees(void)
 {
 	struct strbuf reason = STRBUF_INIT;
+	struct string_list kept = STRING_LIST_INIT_NODUP;
 	DIR *dir = opendir(git_path("worktrees"));
 	struct dirent *d;
 	if (!dir)
 		return;
 	while ((d = readdir(dir)) != NULL) {
+		char *path;
 		if (is_dot_or_dotdot(d->d_name))
 			continue;
 		strbuf_reset(&reason);
-		if (!should_prune_worktree(d->d_name, &reason))
+		path = worktree_disposition(d->d_name, &reason);
+		if (path) {
+			string_list_append(&kept, path)->util = xstrdup(d->d_name);
 			continue;
+		}
 		prune_worktree(d->d_name, reason.buf);
 	}
 	closedir(dir);
+
+	prune_dups(&kept);
+	string_list_clear(&kept, 1);
+
 	if (!show_only)
 		delete_worktrees_dir_if_empty();
 	strbuf_release(&reason);
