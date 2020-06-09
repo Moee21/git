@@ -69,11 +69,21 @@ test_expect_success 'prune directories with gitdir pointing to nowhere' '
 '
 
 test_expect_success 'not prune locked checkout' '
-	test_when_finished rm -r .git/worktrees &&
-	mkdir -p .git/worktrees/ghi &&
+	test_when_finished rm -fr .git/worktrees ghi &&
+	git worktree add ghi &&
 	: >.git/worktrees/ghi/locked &&
+	rm -r ghi &&
 	git worktree prune &&
 	test -d .git/worktrees/ghi
+'
+
+test_expect_success 'prune corrupt despite lock' '
+	test_when_finished rm -fr .git/worktrees ghi &&
+	mkdir -p .git/worktrees/ghi &&
+	: >.git/worktrees/ghi/gitdir &&
+	: >.git/worktrees/ghi/locked &&
+	git worktree prune &&
+	! test -d .git/worktrees/ghi
 '
 
 test_expect_success 'not prune recent checkouts' '
@@ -90,6 +100,30 @@ test_expect_success 'not prune proper checkouts' '
 	git worktree add --detach "$PWD/nop" master &&
 	git worktree prune &&
 	test -d .git/worktrees/nop
+'
+
+test_expect_success 'prune duplicate (linked/linked)' '
+	test_when_finished rm -fr .git/worktrees w1 w2 &&
+	git worktree add --detach w1 &&
+	git worktree add --detach w2 &&
+	sed "s/w2/w1/" .git/worktrees/w2/gitdir >.git/worktrees/w2/gitdir.new &&
+	mv .git/worktrees/w2/gitdir.new .git/worktrees/w2/gitdir &&
+	git worktree prune --verbose >actual &&
+	test_i18ngrep "duplicate entry" actual &&
+	test -d .git/worktrees/w1 &&
+	! test -d .git/worktrees/w2
+'
+
+test_expect_success 'prune duplicate (main/linked)' '
+	test_when_finished rm -fr repo wt &&
+	test_create_repo repo &&
+	test_commit -C repo x &&
+	git -C repo worktree add --detach ../wt &&
+	rm -fr wt &&
+	mv repo wt &&
+	git -C wt worktree prune --verbose >actual &&
+	test_i18ngrep "duplicate entry" actual &&
+	! test -d .git/worktrees/wt
 '
 
 test_done
