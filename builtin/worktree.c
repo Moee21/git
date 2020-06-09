@@ -176,7 +176,7 @@ static void prune_dups(struct string_list *l)
 static void prune_worktrees(void)
 {
 	struct strbuf reason = STRBUF_INIT;
-	struct strbuf main = STRBUF_INIT;
+	struct strbuf main_path = STRBUF_INIT;
 	struct string_list kept = STRING_LIST_INIT_NODUP;
 	DIR *dir = opendir(git_path("worktrees"));
 	struct dirent *d;
@@ -196,10 +196,10 @@ static void prune_worktrees(void)
 	}
 	closedir(dir);
 
-	strbuf_add_absolute_path(&main, get_git_common_dir());
+	strbuf_add_absolute_path(&main_path, get_git_common_dir());
 	/* massage main worktree absolute path to match 'gitdir' content */
-	strbuf_strip_suffix(&main, "/.");
-	string_list_append(&kept, strbuf_detach(&main, 0));
+	strbuf_strip_suffix(&main_path, "/.");
+	string_list_append(&kept, strbuf_detach(&main_path, 0));
 	prune_dups(&kept);
 	string_list_clear(&kept, 1);
 
